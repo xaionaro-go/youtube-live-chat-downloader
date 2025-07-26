@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"regexp"
@@ -68,6 +69,12 @@ type ContinuationChat struct {
 	} `json:"invalidationContinuationData"`
 }
 
+type Thumbnail struct {
+	URL    string `json:"url,omitempty"`
+	Width  int    `json:"width,omitempty"`
+	Height int    `json:"height,omitempty"`
+}
+
 type Actions struct {
 	AddChatItemAction struct {
 		Item struct {
@@ -78,7 +85,11 @@ type Actions struct {
 				AuthorName struct {
 					SimpleText string `json:"simpleText"`
 				}
-				TimestampUsec string `json:"timestampUsec"`
+				AuthorPhoto struct {
+					Thumbnails []Thumbnail `json:"thumbnails"`
+				} `json:"authorPhoto"`
+				TimestampUsec           string `json:"timestampUsec"`
+				AuthorExternalChannelId string `json:"authorExternalChannelId"`
 			} `json:"liveChatTextMessageRenderer"`
 		} `json:"item"`
 	} `json:"addChatItemAction"`
@@ -90,9 +101,7 @@ type Runs struct {
 		EmojiId       string `json:"emojiId"`
 		IsCustomEmoji bool   `json:"isCustomEmoji,omitempty"`
 		Image         struct {
-			Thumbnails []struct {
-				Url string `json:"url,omitempty"`
-			}
+			Thumbnails []Thumbnail
 		}
 	} `json:"emoji,omitempty"`
 }
@@ -107,9 +116,11 @@ type ChatMessagesResponse struct {
 }
 
 type ChatMessage struct {
+	AuthorID   string
 	AuthorName string
 	Message    string
 	Timestamp  time.Time
+	Thumbnails []Thumbnail
 }
 
 type InitialData struct {
@@ -197,14 +208,16 @@ func fetchChatMessages(initialContinuationInfo string, ytCfg YtCfg) ([]ChatMessa
 	chatMessages := []ChatMessage{}
 	for _, action := range actions {
 		liveChatTextMessageRenderer := action.AddChatItemAction.Item.LiveChatTextMessageRenderer
-		// Each chat message is seperated into multiple runs.
+		// Each chat message is separated into multiple runs.
 		// Iterate through all runs and generate the chat message.
 		runs := liveChatTextMessageRenderer.Message.Runs
 		if len(runs) > 0 {
-			chatMessage := ChatMessage{}
-			authorName := liveChatTextMessageRenderer.AuthorName.SimpleText
-			chatMessage.Timestamp = parseMicroSeconds(liveChatTextMessageRenderer.TimestampUsec)
-			chatMessage.AuthorName = authorName
+			chatMessage := ChatMessage{
+				AuthorID:   liveChatTextMessageRenderer.AuthorExternalChannelId,
+				AuthorName: liveChatTextMessageRenderer.AuthorName.SimpleText,
+				Timestamp:  parseMicroSeconds(liveChatTextMessageRenderer.TimestampUsec),
+				Thumbnails: liveChatTextMessageRenderer.AuthorPhoto.Thumbnails,
+			}
 			text := ""
 			for _, run := range runs {
 				if run.Text != "" {
@@ -220,9 +233,9 @@ func fetchChatMessages(initialContinuationInfo string, ytCfg YtCfg) ([]ChatMessa
 						// Adding some whitespace around custom image URLs
 						// without the whitespace it would be difficult to parse these URLs
 						if numberOfThumbnails > 0 && numberOfThumbnails == 2 {
-							text += " " + run.Emoji.Image.Thumbnails[1].Url + " "
+							text += " " + run.Emoji.Image.Thumbnails[1].URL + " "
 						} else if numberOfThumbnails == 1 {
-							text += " " + run.Emoji.Image.Thumbnails[0].Url + " "
+							text += " " + run.Emoji.Image.Thumbnails[0].URL + " "
 						}
 					} else {
 						text += run.Emoji.EmojiId
@@ -274,7 +287,7 @@ func ParseInitialData(videoUrl string) (string, YtCfg, error) {
 		return "", YtCfg{}, err
 	}
 
-	intArr, err := ioutil.ReadAll(resp.Body)
+	intArr, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", YtCfg{}, err
 	}
@@ -283,7 +296,7 @@ func ParseInitialData(videoUrl string) (string, YtCfg, error) {
 
 	// TODO ::  work on regex
 	initialDataArr := regexSearch(INITIAL_DATA_REGEX, html)
-	initialData := strings.Trim(string(initialDataArr[0]), "ytInitialData = ")
+	initialData := strings.Trim(string(initialDataArr[0]), "ytInitialData = ") // TODO: fix this misuse of Trim
 	initialData = strings.Trim(initialData, ";</script")
 	ytCfg := regexSearch(YT_CFG_REGEX, html)[0]
 	ytCfg = strings.Trim(ytCfg, "ytcfg.set(")

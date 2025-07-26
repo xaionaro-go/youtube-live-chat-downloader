@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"math/rand"
@@ -10,6 +11,12 @@ import (
 )
 
 func main() {
+	flag.Parse()
+	if flag.NArg() < 0 {
+		panic("no URL is provided")
+	}
+	urlString := flag.Arg(0)
+
 	customCookies := []*http.Cookie{
 		{Name: "PREF",
 			Value:  "tz=Europe.Rome",
@@ -24,7 +31,7 @@ func main() {
 	// Adding cookies is OPTIONAL
 	YtChat.AddCookies(customCookies)
 
-	continuation, cfg, error := YtChat.ParseInitialData("https://www.youtube.com/watch?v=5qap5aO4i9A")
+	continuation, cfg, error := YtChat.ParseInitialData(urlString)
 	if error != nil {
 		log.Fatal(error)
 	}
@@ -42,7 +49,7 @@ func main() {
 
 		for _, msg := range chat {
 			fmt.Print(msg.Timestamp, " | ")
-			fmt.Println(msg.AuthorName, ": ", msg.Message)
+			fmt.Println(msg.AuthorID, ": ", msg.AuthorName, ": ", msg.Message)
 		}
 	}
 }
