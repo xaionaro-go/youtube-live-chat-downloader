@@ -263,10 +263,10 @@ func fetchChatMessages(initialContinuationInfo string, ytCfg YtCfg) ([]ChatMessa
 	return chatMessages, initialContinuationInfo, timeoutMs, nil
 }
 
-func ParseInitialData(videoUrl string) (string, YtCfg, error) {
-	req, err := http.NewRequest("GET", videoUrl, nil)
+func GetYTDataFromURL(urlString string) ([]byte, []byte, error) {
+	req, err := http.NewRequest("GET", urlString, nil)
 	if err != nil {
-		return "", YtCfg{}, err
+		return nil, nil, fmt.Errorf("unable to create a request to '%s': %w", urlString, err)
 	}
 
 	for _, cookie := range customCookies {
@@ -276,20 +276,19 @@ func ParseInitialData(videoUrl string) (string, YtCfg, error) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", YtCfg{}, err
+		return nil, nil, fmt.Errorf("unable to perform a request to '%s': %w", urlString, err)
 	}
 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		fmt.Print(videoUrl +
-			"\nresp.StatusCode: " + strconv.Itoa(resp.StatusCode))
-		return "", YtCfg{}, err
+		err := fmt.Errorf("received a non-200 code from '%s': %d", urlString, resp.StatusCode)
+		return nil, nil, err
 	}
 
 	intArr, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", YtCfg{}, err
+		return nil, nil, fmt.Errorf("unable to read the body of the response from '%s': %w", urlString, err)
 	}
 
 	html := string(intArr)
@@ -302,11 +301,20 @@ func ParseInitialData(videoUrl string) (string, YtCfg, error) {
 	ytCfg = strings.Trim(ytCfg, "ytcfg.set(")
 	ytCfg = strings.Trim(ytCfg, ");")
 
+	return []byte(initialData), []byte(ytCfg), nil
+}
+
+func ParseInitialData(videoUrl string) (string, YtCfg, error) {
+	initialData, ytCfg, err := GetYTDataFromURL(videoUrl)
+	if err != nil {
+		return "", YtCfg{}, fmt.Errorf("unable to get ytcfg: %w", err)
+	}
+
 	var _ytCfg YtCfg
-	json.Unmarshal([]byte(ytCfg), &_ytCfg)
+	json.Unmarshal(ytCfg, &_ytCfg)
 
 	var _initialData InitialData
-	json.Unmarshal([]byte(initialData), &_initialData)
+	json.Unmarshal(initialData, &_initialData)
 
 	subMenuItems := _initialData.Contents.TwoColumnWatchNextResults.ConversationBar.LiveChatRenderer.Header.LiveChatHeaderRenderer.ViewSelector.SortFilterSubMenuRenderer.SubMenuItems
 	if len(subMenuItems) == 0 {
