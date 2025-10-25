@@ -6,6 +6,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"time"
 
 	YtChat "github.com/abhinavxd/youtube-live-chat-downloader/v2"
 )
@@ -31,17 +32,17 @@ func main() {
 	// Adding cookies is OPTIONAL
 	YtChat.AddCookies(customCookies)
 
-	continuation, cfg, error := YtChat.ParseInitialData(urlString)
-	if error != nil {
-		log.Fatal(error)
+	continuation, cfg, err := YtChat.ParseInitialData(urlString)
+	if err != nil {
+		log.Fatal(err)
 	}
 	for {
-		chat, newContinuation, error := YtChat.FetchContinuationChat(continuation, cfg)
-		if error == YtChat.ErrLiveStreamOver {
+		chat, newContinuation, _, err := YtChat.FetchContinuationChat(continuation, cfg)
+		if err == YtChat.ErrLiveStreamOver {
 			log.Fatal("Live stream over")
 		}
-		if error != nil {
-			log.Print(error)
+		if err != nil {
+			log.Print(err)
 			continue
 		}
 		// set the newly received continuation
@@ -51,5 +52,7 @@ func main() {
 			fmt.Print(msg.Timestamp, " | ")
 			fmt.Println(msg.AuthorID, ": ", msg.AuthorName, ": ", msg.Message)
 		}
+		waitDuration := 500 * time.Millisecond
+		time.Sleep(waitDuration)
 	}
 }

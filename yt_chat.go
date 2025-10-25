@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -23,39 +22,82 @@ type SubMenuItems struct {
 	}
 }
 
+type MainAppWebInfo struct {
+	GraftURL                  string `json:"graftUrl"`
+	WebDisplayMode            string `json:"webDisplayMode"`
+	IsWebNativeShareAvailable bool   `json:"isWebNativeShareAvailable"`
+}
+
+type ConfigInfo struct {
+	AppInstallData string `json:"appInstallData"`
+}
+
 type InnerTubeContext struct {
 	Client struct {
-		Hl               string `json:"hl"`
-		Gl               string `json:"gl"`
-		RemoteHost       string `json:"remoteHost"`
-		DeviceMake       string `json:"deviceMake"`
-		DeviceModel      string `json:"deviceModel"`
-		VisitorData      string `json:"visitorData"`
-		UserAgent        string `json:"userAgent"`
-		ClientName       string `json:"clientName"`
-		ClientVersion    string `json:"clientVersion"`
-		OsName           string `json:"osName"`
-		OsVersion        string `json:"osVersion"`
-		OriginalUrl      string `json:"originalUrl"`
-		Platform         string `json:"platform"`
-		ClientFormFactor string `json:"clientFormFactor"`
-		ConfigInfo       struct {
-			AppInstallData string `json:"appInstallData"`
-		} `json:"configInfo"`
+		Hl                 string         `json:"hl"`
+		Gl                 string         `json:"gl"`
+		RemoteHost         string         `json:"remoteHost"`
+		DeviceMake         string         `json:"deviceMake"`
+		DeviceModel        string         `json:"deviceModel"`
+		VisitorData        string         `json:"visitorData"`
+		UserAgent          string         `json:"userAgent"`
+		ClientName         string         `json:"clientName"`
+		ClientVersion      string         `json:"clientVersion"`
+		OsName             string         `json:"osName"`
+		OsVersion          string         `json:"osVersion"`
+		OriginalURL        string         `json:"originalUrl"`
+		ScreenPixelDensity int            `json:"screenPixelDensity"`
+		Platform           string         `json:"platform"`
+		ClientFormFactor   string         `json:"clientFormFactor"`
+		ConfigInfo         ConfigInfo     `json:"configInfo"`
+		ScreenDensityFloat int            `json:"screenDensityFloat"`
+		UserInterfaceTheme string         `json:"userInterfaceTheme"`
+		TimeZone           string         `json:"timeZone"`
+		BrowserName        string         `json:"browserName"`
+		BrowserVersion     string         `json:"browserVersion"`
+		AcceptHeader       string         `json:"acceptHeader"`
+		DeviceExperimentID string         `json:"deviceExperimentId"`
+		RolloutToken       string         `json:"rolloutToken"`
+		ScreenWidthPoints  int            `json:"screenWidthPoints"`
+		ScreenHeightPoints int            `json:"screenHeightPoints"`
+		UtcOffsetMinutes   int            `json:"utcOffsetMinutes"`
+		MainAppWebInfo     MainAppWebInfo `json:"mainAppWebInfo"`
 	} `json:"client"`
+	User struct {
+		LockedSafetyMode bool `json:"lockedSafetyMode"`
+	} `json:"user"`
+	Request struct {
+		UseSsl                  bool  `json:"useSsl"`
+		InternalExperimentFlags []any `json:"internalExperimentFlags"`
+		ConsistencyTokenJars    []any `json:"consistencyTokenJars"`
+	} `json:"request"`
+	ClickTracking struct {
+		ClickTrackingParams string `json:"clickTrackingParams"`
+	} `json:"clickTracking"`
+	AdSignalsInfo struct {
+		Params []struct {
+			Key   string `json:"key"`
+			Value string `json:"value"`
+		} `json:"params"`
+	} `json:"adSignalsInfo"`
 }
 
 type YtCfg struct {
 	INNERTUBE_API_KEY             string
 	INNERTUBE_CONTEXT             InnerTubeContext
-	INNERTUBE_CONTEXT_CLIENT_NAME string
+	INNERTUBE_CONTEXT_CLIENT_NAME any
 	INNERTUBE_CLIENT_VERSION      string
 	ID_TOKEN                      string
 }
 
+type WebClientInfo struct {
+	IsDocumentHidden bool `json:"isDocumentHidden"`
+}
+
 type Context struct {
-	Context      InnerTubeContext `json:"context"`
-	Continuation string           `json:"continuation"`
+	Context       InnerTubeContext `json:"context"`
+	Continuation  string           `json:"continuation"`
+	WebClientInfo WebClientInfo    `json:"webClientInfo"`
 }
 
 type ContinuationChat struct {
@@ -123,28 +165,8 @@ type ChatMessage struct {
 	Thumbnails []Thumbnail
 }
 
-type InitialData struct {
-	Contents struct {
-		TwoColumnWatchNextResults struct {
-			ConversationBar struct {
-				LiveChatRenderer struct {
-					Header struct {
-						LiveChatHeaderRenderer struct {
-							ViewSelector struct {
-								SortFilterSubMenuRenderer struct {
-									SubMenuItems []SubMenuItems `json:"subMenuItems"`
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-}
-
 var (
-	LIVE_CHAT_URL = `https://www.youtube.com/youtubei/v1/live_chat/get_%s?key=%s`
+	LIVE_CHAT_URL = `https://www.youtube.com/youtubei/v1/live_chat/get_live_chat?prettyPrint=false`
 	// Google would sometimes ask you to solve a CAPTCHA before accessing it's websites
 	// or ask for your CONSENT if you are an EU user
 	// You can add those cookies here.
@@ -174,35 +196,48 @@ func parseMicroSeconds(timeStampStr string) time.Time {
 }
 
 func fetchChatMessages(initialContinuationInfo string, ytCfg YtCfg) ([]ChatMessage, string, int, error) {
-	apiKey := ytCfg.INNERTUBE_API_KEY
-	continuationUrl := fmt.Sprintf(LIVE_CHAT_URL, API_TYPE, apiKey)
+	continuationUrl := LIVE_CHAT_URL
 	innertubeContext := ytCfg.INNERTUBE_CONTEXT
 
-	context := Context{innertubeContext, initialContinuationInfo}
-	b, _ := json.Marshal(context)
-	var jsonData = []byte(b)
-	request, error := http.NewRequest("POST", continuationUrl, bytes.NewBuffer(jsonData))
-	if error != nil {
-		return nil, "", 0, error
+	context := Context{
+		Context:      innertubeContext,
+		Continuation: initialContinuationInfo,
+		WebClientInfo: WebClientInfo{
+			IsDocumentHidden: false,
+		},
+	}
+	//context.Context.Client.OriginalURL = fmt.Sprintf("https://www.youtube.com/live_chat?continuation=%s", initialContinuationInfo)
+	//context.Context.Client.MainAppWebInfo.GraftURL = fmt.Sprintf("https://www.youtube.com/live_chat?continuation=%s", initialContinuationInfo)
+	context.Context.Client.MainAppWebInfo.WebDisplayMode = "WEB_DISPLAY_MODE_BROWSER"
+
+	jsonData, err := json.Marshal(context)
+	if err != nil {
+		return nil, "", 0, fmt.Errorf("error marshalling context %v: %w", context, err)
+	}
+	request, err := http.NewRequest("POST", continuationUrl, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, "", 0, fmt.Errorf("error creating POST request to %s with data %s: %w", continuationUrl, string(jsonData), err)
 	}
 	request.Header.Set("Content-Type", "application/json; charset=UTF-8")
 
 	client := &http.Client{}
-	response, error := client.Do(request)
-	if error != nil {
-		return nil, "", 0, error
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, "", 0, fmt.Errorf("error performing POST request to %s with data %s: %w", continuationUrl, string(jsonData), err)
 	}
-	if response.StatusCode != 200 {
-		return nil, "", 0, fmt.Errorf("some error fetching chat messages status code: %d", response.StatusCode)
+	defer response.Body.Close()
+
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, "", 0, fmt.Errorf("error reading response body from %s with data %s: %w", continuationUrl, string(jsonData), err)
 	}
 
-	body, err := ioutil.ReadAll(response.Body)
-	if err != nil {
-		return nil, "", 0, err
+	if response.StatusCode != 200 {
+		return nil, "", 0, fmt.Errorf("error fetching chat messages from %s with data %s: status code: %d: %s", continuationUrl, string(jsonData), response.StatusCode, body)
 	}
-	response.Body.Close()
+
 	var chatMsgResp ChatMessagesResponse
-	json.Unmarshal([]byte(string(body)), &chatMsgResp)
+	json.Unmarshal(body, &chatMsgResp)
 	actions := chatMsgResp.ContinuationContents.LiveChatContinuation.Actions
 
 	chatMessages := []ChatMessage{}
@@ -311,31 +346,37 @@ func ParseInitialData(videoUrl string) (string, YtCfg, error) {
 	}
 
 	var _ytCfg YtCfg
-	json.Unmarshal(ytCfg, &_ytCfg)
+	err = json.Unmarshal(ytCfg, &_ytCfg)
+	if err != nil {
+		return "", YtCfg{}, fmt.Errorf("unable to unmarshal ytcfg %s: %w", string(ytCfg), err)
+	}
 
 	var _initialData InitialData
-	json.Unmarshal(initialData, &_initialData)
+	err = json.Unmarshal(initialData, &_initialData)
+	if err != nil {
+		return "", YtCfg{}, fmt.Errorf("unable to unmarshal initial data %s: %w", string(initialData), err)
+	}
 
-	subMenuItems := _initialData.Contents.TwoColumnWatchNextResults.ConversationBar.LiveChatRenderer.Header.LiveChatHeaderRenderer.ViewSelector.SortFilterSubMenuRenderer.SubMenuItems
-	if len(subMenuItems) == 0 {
+	continuations := _initialData.Contents.TwoColumnWatchNextResults.ConversationBar.LiveChatRenderer.Continuations
+	if len(continuations) == 0 {
 		return "", YtCfg{}, ErrStreamNotLive
 	}
-	initialContinuationInfo := subMenuItems[1].Continuation.ReloadContinuationData.Continuation
+	reloadContinuationData := continuations[0].ReloadContinuationData
+	initialContinuationInfo := reloadContinuationData.Continuation
 	return initialContinuationInfo, _ytCfg, nil
 }
 
-func FetchContinuationChat(continuation string, ytCfg YtCfg) ([]ChatMessage, string, error) {
+func FetchContinuationChat(continuation string, ytCfg YtCfg) ([]ChatMessage, string, time.Duration, error) {
 	chatMessages, continuation, timeoutMs, error := fetchChatMessages(continuation, ytCfg)
 	if error != nil {
-		return nil, "", error
+		return nil, "", time.Second, error
 	}
 	// Sleep for timeoutMs milliseconds sent by the server
+	timeoutDuration := time.Second
 	if timeoutMs > 0 {
-		time.Sleep(time.Duration(timeoutMs) * time.Millisecond)
-	} else {
-		time.Sleep(time.Second * 5)
+		timeoutDuration = time.Duration(timeoutMs) * time.Millisecond
 	}
-	return chatMessages, continuation, nil
+	return chatMessages, continuation, timeoutDuration, nil
 }
 
 func AddCookies(cookies []*http.Cookie) {
